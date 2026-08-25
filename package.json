@@ -1,0 +1,13 @@
+{
+  "name": "autonomous-commerce-engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Autonomous digital-commerce experimentation engine with phone dashboard.",
+  "scripts": {
+    "test": "node --test",
+    "lint": "node --check src/core/*.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
