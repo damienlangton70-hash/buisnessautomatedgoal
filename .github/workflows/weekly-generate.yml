@@ -1,0 +1,97 @@
+name: DarkDragonAssets Daily & Weekly
+
+on:
+  schedule:
+    - cron: "0 9 * * 1-5"
+    - cron: "0 9 * * 6"
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to run'
+        required: true
+        default: 'generate-daily'
+        type: choice
+        options:
+          - generate-daily
+          - bundle-weekly
+
+jobs:
+  generate-daily:
+    if: github.event.schedule == '0 9 * * 1-5' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'generate-daily')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Generate 5 tilesets
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ITCHIO_API_KEY: ${{ secrets.ITCHIO_API_KEY }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: npm run generate:daily
+
+      - name: Commit and push (if changes)
+        run: |
+          git config user.name "DarkDragonAssets"
+          git config user.email "bot@darkdragonassets.local"
+          git add -A
+          git commit -m "Auto: Generate daily assets (run ${{ github.run_id }})" || echo "No changes to commit"
+          git push
+
+      - name: Upload logs artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-logs-${{ github.run_id }}
+          path: data/daily/
+          retention-days: 7
+
+  bundle-weekly:
+    if: github.event.schedule == '0 9 * * 6' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'bundle-weekly')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Bundle and upload to itch.io
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ITCHIO_API_KEY: ${{ secrets.ITCHIO_API_KEY }}
+          ITCHIO_USERNAME: ${{ secrets.ITCHIO_USERNAME }}
+          ITCHIO_GAME_ID: ${{ secrets.ITCHIO_GAME_ID }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: npm run bundle:weekly
+
+      - name: Commit and push
+        run: |
+          git config user.name "DarkDragonAssets"
+          git config user.email "bot@darkdragonassets.local"
+          git add -A
+          git commit -m "Auto: Weekly bundle uploaded (run ${{ github.run_id }})" || echo "No changes to commit"
+          git push
+
+      - name: Upload bundle artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-bundle-${{ github.run_id }}
+          path: data/daily/*.zip
+          retention-days: 30

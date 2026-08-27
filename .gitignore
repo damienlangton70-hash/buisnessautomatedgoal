@@ -1,0 +1,15 @@
+node_modules/
+package-lock.json
+.env
+.env.local
+.env.*.local
+data/tilesets/run-*/
+.DS_Store
+*.swp
+.vscode/
+.idea/
+*.log
+npm-debug.log*
+.cache/
+dist/
+build/

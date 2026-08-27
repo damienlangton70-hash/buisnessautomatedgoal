@@ -1,13 +1,27 @@
 {
-  "name": "autonomous-commerce-engine",
-  "version": "0.1.0",
-  "private": true,
-  "description": "Autonomous digital-commerce experimentation engine with phone dashboard.",
+  "name": "dark-dragon-assets",
+  "version": "2.0.0",
+  "description": "Autonomous game tile generation (5 tilesets/day M-F) and weekly itch.io publishing",
+  "type": "module",
+  "main": "src/generate-daily.mjs",
   "scripts": {
-    "test": "node --test",
-    "lint": "node --check src/core/*.mjs"
+    "generate:daily": "node src/generate-daily.mjs",
+    "bundle:weekly": "node src/bundle-weekly.mjs",
+    "generate:test": "TEST_MODE=true node src/generate-daily.mjs",
+    "bundle:test": "TEST_MODE=true node src/bundle-weekly.mjs"
   },
-  "engines": {
-    "node": ">=20"
-  }
+  "keywords": [
+    "game-assets",
+    "tiles",
+    "itch.io",
+    "automation"
+  ],
+  "author": "Damien Langton",
+  "license": "MIT",
+  "dependencies": {
+    "openai": "^4.24.0",
+    "sharp": "^0.33.0",
+    "archiver": "^6.0.0"
+  },
+  "devDependencies": {}
 }
