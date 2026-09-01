@@ -1,24 +1,22 @@
-import sharp from "sharp";
+import Jimp from "jimp";
 import { readFile, writeFile } from "fs/promises";
 
 export async function makeSeamless(inputPath, outputPath, tileSize = 256) {
   try {
-    const inputBuffer = await readFile(inputPath);
-    let image = sharp(inputBuffer);
-    const metadata = await image.metadata();
-    const width = metadata.width || tileSize;
-    const height = metadata.height || tileSize;
+    const image = await Jimp.read(inputPath);
+    const width = image.bitmap.width || tileSize;
+    const height = image.bitmap.height || tileSize;
     const blendWidth = Math.floor(width * 0.1);
     const blendHeight = Math.floor(height * 0.1);
-    const rawImage = await image.raw().toBuffer({ resolveWithObject: true });
-    const pixels = rawImage.data;
-    const channels = rawImage.info.channels;
+    const pixels = image.bitmap.data;
+
+    // Blend horizontal edges
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < blendWidth; x++) {
         const blendFactor = x / blendWidth;
-        const leftIdx = (y * width + x) * channels;
-        const rightIdx = (y * width + (width - blendWidth + x)) * channels;
-        for (let c = 0; c < channels; c++) {
+        const leftIdx = (y * width + x) * 4;
+        const rightIdx = (y * width + (width - blendWidth + x)) * 4;
+        for (let c = 0; c < 4; c++) {
           const left = pixels[leftIdx + c];
           const right = pixels[rightIdx + c];
           const blended = Math.round(left * (1 - blendFactor) + right * blendFactor);
@@ -27,12 +25,14 @@ export async function makeSeamless(inputPath, outputPath, tileSize = 256) {
         }
       }
     }
+
+    // Blend vertical edges
     for (let y = 0; y < blendHeight; y++) {
       for (let x = 0; x < width; x++) {
         const blendFactor = y / blendHeight;
-        const topIdx = (y * width + x) * channels;
-        const botIdx = ((height - blendHeight + y) * width + x) * channels;
-        for (let c = 0; c < channels; c++) {
+        const topIdx = (y * width + x) * 4;
+        const botIdx = ((height - blendHeight + y) * width + x) * 4;
+        for (let c = 0; c < 4; c++) {
           const top = pixels[topIdx + c];
           const bot = pixels[botIdx + c];
           const blended = Math.round(top * (1 - blendFactor) + bot * blendFactor);
@@ -41,7 +41,8 @@ export async function makeSeamless(inputPath, outputPath, tileSize = 256) {
         }
       }
     }
-    await sharp(pixels, { raw: { width, height, channels } }).png().toFile(outputPath);
+
+    await image.write(outputPath);
     return outputPath;
   } catch (error) {
     console.error(`Failed to process tile ${inputPath}:`, error);
@@ -55,18 +56,22 @@ export async function createTilesetPreview(tileFiles, outputPath, tilesPerRow = 
     const rows = Math.ceil(tileFiles.length / tilesPerRow);
     const width = tilesPerRow * tileSize;
     const height = rows * tileSize;
-    const canvas = await sharp({
-      create: { width, height, channels: 4, background: { r: 20, g: 20, b: 20, alpha: 1 } },
-    }).png().toBuffer();
-    let composite = sharp(canvas);
-    const composites = [];
+
+    // Create dark canvas
+    const canvas = new Jimp({ width, height, color: 0x141414ff });
+
+    // Composite tiles onto canvas
     for (let i = 0; i < tileFiles.length; i++) {
       const row = Math.floor(i / tilesPerRow);
       const col = i % tilesPerRow;
-      composites.push({ input: tileFiles[i], left: col * tileSize, top: row * tileSize });
+      const x = col * tileSize;
+      const y = row * tileSize;
+
+      const tile = await Jimp.read(tileFiles[i]);
+      canvas.composite(tile, x, y);
     }
-    composite = composite.composite(composites);
-    await composite.toFile(outputPath);
+
+    await canvas.write(outputPath);
     return outputPath;
   } catch (error) {
     console.error(`Failed to create preview ${outputPath}:`, error);

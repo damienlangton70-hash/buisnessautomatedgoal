@@ -20,7 +20,7 @@
   "license": "MIT",
   "dependencies": {
     "openai": "^4.24.0",
-    "sharp": "^0.33.0",
+    "jimp": "^0.22.10",
     "archiver": "^6.0.0"
   },
   "devDependencies": {}
