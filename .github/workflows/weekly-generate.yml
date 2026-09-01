@@ -2,8 +2,7 @@ name: DarkDragonAssets Daily & Weekly
 
 on:
   schedule:
-    - cron: "0 9 * * 1-5"
-    - cron: "0 9 * * 6"
+    - cron: "0 12 * * *"  # Daily at noon UTC
   workflow_dispatch:
     inputs:
       action:
@@ -17,7 +16,7 @@ on:
 
 jobs:
   generate-daily:
-    if: github.event.schedule == '0 9 * * 1-5' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'generate-daily')
+    if: github.event.schedule == '0 12 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'generate-daily')
     runs-on: ubuntu-latest
 
     steps:
@@ -55,8 +54,8 @@ jobs:
           path: data/daily/
           retention-days: 7
 
-  bundle-weekly:
-    if: github.event.schedule == '0 9 * * 6' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'bundle-weekly')
+  bundle-daily:
+    if: github.event.schedule == '0 12 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'bundle-weekly')
     runs-on: ubuntu-latest
 
     steps:
