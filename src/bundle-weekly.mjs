@@ -1,54 +1,102 @@
 #!/usr/bin/env node
 
-import { writeFile, readFile, mkdir } from "fs/promises";
+import { readFile, readdir, mkdir, writeFile } from "fs/promises";
 import { createWriteStream } from "fs";
 import { join } from "path";
 import { fileURLToPath } from "url";
 import archiver from "archiver";
+import { isoWeek } from "./lib/week.mjs";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const projectRoot = join(__dirname, "..");
-const dataDir = join(projectRoot, "data", "daily");
+const dataDir = process.env.DATA_DIR || join(projectRoot, "data", "daily");
+const distDir = process.env.DIST_DIR || join(projectRoot, "dist");
 
-const {
-  OPENAI_API_KEY,
-  ITCHIO_API_KEY,
-  ITCHIO_USERNAME,
-  ITCHIO_GAME_ID,
-  TEST_MODE,
-} = process.env;
+const { WEEK_ID } = process.env;
 
-async function log(message) {
-  const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] ${message}`);
+function log(message) {
+  console.log(`[${new Date().toISOString()}] ${message}`);
 }
 
-async function ensureApiKeys() {
-  if (!ITCHIO_API_KEY || !ITCHIO_USERNAME || !ITCHIO_GAME_ID) {
+/**
+ * Merge the per-day fragments into one weekly manifest.
+ *
+ * The old design kept a single mutable week-*.json that each day rewrote, and
+ * the workflow committed the PNGs to git so the Saturday job could see them.
+ * Days are now independent fragments handed between runs as CI artifacts, so
+ * nothing binary ever enters the repository.
+ */
+async function collectWeek(weekId) {
+  const files = (await readdir(dataDir)).filter(
+    (f) => f.startsWith(`day-${weekId}-`) && f.endsWith(".json"),
+  );
+
+  if (!files.length) {
     throw new Error(
-      "itch.io credentials missing. Set ITCHIO_API_KEY, ITCHIO_USERNAME, ITCHIO_GAME_ID",
+      `No day fragments found for week ${weekId} in ${dataDir}. ` +
+        `Did the weekday generate runs upload their artifacts?`,
     );
   }
+
+  files.sort();
+
+  const assets = [];
+  const days = [];
+  let tileSize = null;
+
+  for (const f of files) {
+    const frag = JSON.parse(await readFile(join(dataDir, f), "utf8"));
+    days.push({ date: frag.date, count: frag.assets.length });
+    tileSize ??= frag.tileSize;
+    assets.push(...frag.assets);
+  }
+
+  return { weekId, tileSize, days, assets };
 }
 
-async function getWeeklyManifest() {
-  const now = new Date();
-  const jan4 = new Date(now.getFullYear(), 0, 4);
-  const msPerDay = 86400000;
-  const weekNum = Math.ceil(
-    ((now.getTime() - jan4.getTime()) / msPerDay + jan4.getDay() + 1) / 7,
-  );
-  const year = now.getFullYear();
-  const week = String(weekNum).padStart(2, "0");
+function packReadme(manifest) {
+  const themes = manifest.assets
+    .map((a, i) => `- **${a.theme}** — ${a.description}`)
+    .join("\n");
 
-  const manifestPath = join(dataDir, `week-${year}-${week}.json`);
+  return `# DarkDragon Weekly Asset Pack — ${manifest.weekId}
 
-  try {
-    const raw = await readFile(manifestPath, "utf8");
-    return { manifest: JSON.parse(raw), manifestPath, week, year };
-  } catch {
-    throw new Error(`No manifest found for week ${year}-${week}`);
-  }
+**Tilesets:** ${manifest.assets.length}
+**Files:** ${manifest.assets.length * 4} PNGs
+**Tile size:** ${manifest.tileSize}x${manifest.tileSize}
+
+## Contents
+
+Each numbered folder is one tileset:
+
+- \`floor.png\` — seamless floor tile, tiles on all four edges
+- \`wall.png\` — seamless wall tile, tiles on all four edges
+- \`prop.png\` — single prop with a transparent background
+- \`preview.png\` — preview grid (floor and wall shown as a 2x2 repeat)
+
+\`manifest.json\` lists every tileset with its theme, tags and colour, so you
+can script imports into your engine.
+
+## Themes in this pack
+
+${themes}
+
+## AI disclosure
+
+The images in this pack were produced with generative AI (OpenAI DALL-E 3) and
+then processed for seamless tiling. This is disclosed on the itch.io listing in
+line with itch.io's generative AI disclosure policy.
+
+## License
+
+Personal and commercial use permitted, including in commercial games. You may
+modify and redistribute the tiles as part of a game or product. Do not resell
+the pack itself as an asset pack. Attribution appreciated but not required.
+
+---
+
+Pack ${manifest.weekId} — DarkDragonAssets
+`;
 }
 
 async function createZipBundle(manifest, outputPath) {
@@ -56,135 +104,67 @@ async function createZipBundle(manifest, outputPath) {
     const output = createWriteStream(outputPath);
     const archive = archiver("zip", { zlib: { level: 9 } });
 
-    log(`[ZIP] Creating archive: ${outputPath}`);
-
-    output.on("close", () => {
-      log(`[ZIP] Complete: ${archive.pointer()} bytes`);
-      resolve(outputPath);
-    });
-
+    output.on("close", () =>
+      resolve({ path: outputPath, bytes: archive.pointer() }),
+    );
     archive.on("error", reject);
     output.on("error", reject);
-
     archive.pipe(output);
 
-    for (const asset of manifest.assets) {
-      const assetDir = asset.id;
-      for (const [key, filename] of Object.entries(asset.files)) {
-        const filepath = join(dataDir, filename);
-        archive.file(filepath, { name: `${assetDir}/${filename}` });
+    manifest.assets.forEach((asset, i) => {
+      const folder = `${String(i + 1).padStart(2, "0")}-${asset.themeKey}`;
+      for (const [kind, filename] of Object.entries(asset.files)) {
+        archive.file(join(dataDir, filename), {
+          name: `${folder}/${kind}.png`,
+        });
       }
-    }
-
-    archive.append(JSON.stringify(manifest, null, 2), {
-      name: "manifest.json",
     });
 
-    const readme = `# DarkDragon Weekly Asset Pack
-
-**Week:** ${manifest.year}-${manifest.week}
-**Assets:** ${manifest.assets.length} tilesets (${manifest.assets.length * 3} tile types)
-**Generated:** ${manifest.generatedAt}
-**Updated:** ${manifest.updatedAt}
-
-## Contents
-
-Each tileset folder contains:
-- \`floor.png\` — Seamless floor tile (256×256)
-- \`wall.png\` — Wall element (256×256)
-- \`prop.png\` — Decorative prop (256×256)
-- \`preview.png\` — Preview grid
-
-## Themes This Week
-
-${manifest.assets.map((a) => `- **${a.theme}** — ${a.description}`).join("\n")}
-
-## License
-
-Personal & commercial use permitted. Attribution appreciated.
-
----
-
-Pack created by DarkDragonAssets
-`;
-    archive.append(readme, { name: "README.md" });
-
+    archive.append(JSON.stringify(manifest, null, 2), { name: "manifest.json" });
+    archive.append(packReadme(manifest), { name: "README.md" });
     archive.finalize();
   });
 }
 
-async function uploadToItchio(zipPath, manifest) {
-  const week = manifest.week;
-  const year = manifest.year;
-  const assetCount = manifest.assets.length;
-
-  log(`[itch.io] Uploading week ${year}-${week} (${assetCount} assets)`);
-
-  try {
-    const fileBuffer = await readFile(zipPath);
-
-    const formData = new FormData();
-    formData.append("api_key", ITCHIO_API_KEY);
-    formData.append("upload", new Blob([fileBuffer]), `week-${year}-${week}.zip`);
-    formData.append(
-      "build_file_size",
-      fileBuffer.length.toString(),
-    );
-
-    const url = `https://itch.io/api/1/${ITCHIO_USERNAME}/${ITCHIO_GAME_ID}/uploads`;
-
-    const response = await fetch(url, {
-      method: "POST",
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`Upload failed: ${response.status} ${text}`);
-    }
-
-    const result = await response.json();
-    log(`[itch.io] ✓ Upload successful`);
-    log(`[itch.io] URL: ${result.url || "Check your game page"}`);
-
-    return result;
-  } catch (error) {
-    log(`[itch.io ERROR] ${error.message}`);
-    throw error;
-  }
-}
-
 async function main() {
-  try {
-    log("=== DarkDragonAssets: Weekly Bundle ===");
+  log("=== DarkDragonAssets: weekly bundle ===");
 
-    const { manifest, manifestPath, week, year } = await getWeeklyManifest();
-    log(`[Manifest] Week ${year}-${week}: ${manifest.assets.length} assets`);
+  const weekId = WEEK_ID || isoWeek().id;
+  const manifest = await collectWeek(weekId);
 
-    if (manifest.assets.length === 0) {
-      log("[Warning] No assets generated this week. Skipping upload.");
-      return;
-    }
+  log(`Week ${weekId}`);
+  for (const d of manifest.days) log(`  ${d.date}: ${d.count} tilesets`);
+  log(`Total: ${manifest.assets.length} tilesets`);
 
-    const zipPath = join(dataDir, `week-${year}-${week}.zip`);
-    await createZipBundle(manifest, zipPath);
+  const uniqueThemes = new Set(manifest.assets.map((a) => a.themeKey)).size;
+  log(`Distinct themes: ${uniqueThemes}/${manifest.assets.length}`);
 
-    if (!TEST_MODE) {
-      await ensureApiKeys();
-      await uploadToItchio(zipPath, manifest);
-    } else {
-      log("[Test Mode] Skipping itch.io upload");
-    }
-
-    log(`\n=== Complete ===`);
-    log(`Week: ${year}-${week}`);
-    log(`Assets: ${manifest.assets.length} tilesets`);
-    log(`Files: ${manifest.assets.length * 4} PNG files`);
-    log(`ZIP: ${zipPath}`);
-  } catch (error) {
-    log(`[ERROR] ${error.message}`);
-    process.exit(1);
+  if (manifest.assets.length === 0) {
+    throw new Error("Week contains no assets — refusing to publish an empty pack");
   }
+
+  // butler pushes a directory, so the zip is staged inside one.
+  const stageDir = join(distDir, weekId);
+  await mkdir(stageDir, { recursive: true });
+
+  const zipName = `darkdragon-week-${weekId}.zip`;
+  const { path, bytes } = await createZipBundle(
+    manifest,
+    join(stageDir, zipName),
+  );
+
+  await writeFile(
+    join(distDir, `manifest-${weekId}.json`),
+    JSON.stringify(manifest, null, 2),
+  );
+
+  log(`\n=== Complete ===`);
+  log(`ZIP: ${path} (${(bytes / 1048576).toFixed(1)} MB)`);
+  log(`Stage dir: ${stageDir}`);
+  log(`Publish with: npm run publish:weekly`);
 }
 
-main();
+main().catch((error) => {
+  log(`[ERROR] ${error.message}`);
+  process.exit(1);
+});

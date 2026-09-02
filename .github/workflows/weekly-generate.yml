@@ -1,96 +1,147 @@
-name: DarkDragonAssets Daily & Weekly
+name: DarkDragonAssets
 
+# Two schedules, each gating exactly one job.
+#
+# Previously there was a single daily cron and BOTH jobs carried the same
+# `if` condition on it, so every day the pipeline generated assets *and*
+# bundled *and* attempted to publish — in parallel, meaning the bundler
+# checked out the repo before the generator had pushed that day's work.
 on:
   schedule:
-    - cron: "0 12 * * *"  # Daily at noon UTC
+    - cron: "0 9 * * 1-5" # Mon-Fri 09:00 UTC — generate
+    - cron: "0 10 * * 6" # Saturday 10:00 UTC — bundle + publish
   workflow_dispatch:
     inputs:
       action:
-        description: 'Action to run'
+        description: "Which job to run"
         required: true
-        default: 'generate-daily'
+        default: generate-daily
         type: choice
         options:
           - generate-daily
           - bundle-weekly
+      week_id:
+        description: "ISO week to bundle (e.g. 2026-36). Blank = current week."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: darkdragon-assets
+  cancel-in-progress: false
 
 jobs:
   generate-daily:
-    if: github.event.schedule == '0 12 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'generate-daily')
+    if: >-
+      github.event.schedule == '0 9 * * 1-5' ||
+      (github.event_name == 'workflow_dispatch' && inputs.action == 'generate-daily')
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: npm
 
-      - name: Install dependencies
-        run: npm install
+      - run: npm ci
 
-      - name: Generate 5 tilesets
+      - name: Resolve ISO week
+        id: week
+        run: |
+          echo "id=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+
+      # Carries the week's earlier days forward, so today's themes don't repeat
+      # them and Saturday can see the whole week. Nothing binary goes into git.
+      - name: Restore this week's assets
+        uses: actions/cache/restore@v4
+        with:
+          path: data/daily
+          key: dda-${{ steps.week.outputs.id }}-${{ steps.week.outputs.date }}
+          restore-keys: |
+            dda-${{ steps.week.outputs.id }}-
+
+      - name: Generate tilesets
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ITCHIO_API_KEY: ${{ secrets.ITCHIO_API_KEY }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
+          IMAGE_QUALITY: ${{ vars.IMAGE_QUALITY || 'hd' }}
+          TILESETS_PER_RUN: ${{ vars.TILESETS_PER_RUN || '5' }}
+          TILE_SIZE: ${{ vars.TILE_SIZE || '512' }}
         run: npm run generate:daily
 
-      - name: Commit and push (if changes)
-        run: |
-          git config user.name "DarkDragonAssets"
-          git config user.email "bot@darkdragonassets.local"
-          git add -A
-          git commit -m "Auto: Generate daily assets (run ${{ github.run_id }})" || echo "No changes to commit"
-          git push
+      - name: Save this week's assets
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/daily
+          key: dda-${{ steps.week.outputs.id }}-${{ steps.week.outputs.date }}-${{ github.run_id }}
 
-      - name: Upload logs artifact
+      - name: Upload day's output
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: daily-logs-${{ github.run_id }}
-          path: data/daily/
-          retention-days: 7
+          name: dda-${{ steps.week.outputs.id }}-${{ steps.week.outputs.date }}
+          path: data/daily
+          retention-days: 10
 
-  bundle-daily:
-    if: github.event.schedule == '0 12 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'bundle-weekly')
+  bundle-weekly:
+    if: >-
+      github.event.schedule == '0 10 * * 6' ||
+      (github.event_name == 'workflow_dispatch' && inputs.action == 'bundle-weekly')
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: npm
 
-      - name: Install dependencies
-        run: npm install
+      - run: npm ci
 
-      - name: Bundle and upload to itch.io
+      - name: Resolve ISO week
+        id: week
+        run: |
+          WEEK="${{ inputs.week_id }}"
+          [ -z "$WEEK" ] && WEEK="$(date -u +%G-%V)"
+          echo "id=$WEEK" >> "$GITHUB_OUTPUT"
+
+      - name: Restore this week's assets
+        uses: actions/cache/restore@v4
+        with:
+          path: data/daily
+          key: dda-${{ steps.week.outputs.id }}-final
+          restore-keys: |
+            dda-${{ steps.week.outputs.id }}-
+
+      - name: Bundle the week
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ITCHIO_API_KEY: ${{ secrets.ITCHIO_API_KEY }}
-          ITCHIO_USERNAME: ${{ secrets.ITCHIO_USERNAME }}
-          ITCHIO_GAME_ID: ${{ secrets.ITCHIO_GAME_ID }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
+          WEEK_ID: ${{ steps.week.outputs.id }}
         run: npm run bundle:weekly
 
-      - name: Commit and push
+      - name: Install butler
         run: |
-          git config user.name "DarkDragonAssets"
-          git config user.email "bot@darkdragonassets.local"
-          git add -A
-          git commit -m "Auto: Weekly bundle uploaded (run ${{ github.run_id }})" || echo "No changes to commit"
-          git push
+          curl -sSfL -o butler.zip \
+            https://broth.itch.ovh/butler/linux-amd64/LATEST/archive/default
+          unzip -q butler.zip -d "$HOME/.butler"
+          chmod +x "$HOME/.butler/butler"
+          echo "$HOME/.butler" >> "$GITHUB_PATH"
 
-      - name: Upload bundle artifact
+      - name: Publish to itch.io
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+          ITCHIO_USERNAME: ${{ secrets.ITCHIO_USERNAME }}
+          ITCHIO_GAME_SLUG: ${{ secrets.ITCHIO_GAME_SLUG }}
+          WEEK_ID: ${{ steps.week.outputs.id }}
+        run: npm run publish:weekly
+
+      - name: Upload the pack
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: weekly-bundle-${{ github.run_id }}
-          path: data/daily/*.zip
+          name: darkdragon-pack-${{ steps.week.outputs.id }}
+          path: dist/
           retention-days: 30

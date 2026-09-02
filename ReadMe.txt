@@ -1,45 +1,22 @@
 DARK DRAGON ASSETS
 
-Status: ✅ LIVE & AUTONOMOUS
+See README.md for the full documentation.
 
-Fully autonomous game tile generation and itch.io publishing system.
+This file used to hold a second, contradictory description of the project
+(different file counts, different schedule, different revenue figures). It has
+been reduced to a pointer so there is one source of truth.
 
-WHAT IT DOES
-- Monday–Friday: Generate 5 random game tilesets daily (9 AM UTC)
-- Saturday: Bundle entire week's 25 tilesets into ZIP and upload to itch.io (9 AM UTC)
-- Revenue: Pay-what-you-want (min £4) on itch.io — £100+/week passive income
+Quick reference
+---------------
+  Mon-Fri 09:00 UTC   generate 5 tilesets  (npm run generate:daily)
+  Sat     10:00 UTC   bundle + publish     (npm run bundle:weekly && npm run publish:weekly)
+  Any time            offline pipeline test (npm run test:pipeline)
 
-KEY FACTS
-- Frequency: 5 tilesets/day M-F, 1 bundle Saturday
-- Weekly output: 25 tilesets = 100 PNG files
-- Cost/week: ~$0.30 USD (OpenAI DALL-E 3)
-- Revenue/week: £20–100 (conservative)
-- Setup time: 10 minutes (push to GitHub + add secrets)
-- Ongoing work: Zero (fully automated)
+Required GitHub secrets: OPENAI_API_KEY, BUTLER_API_KEY, ITCHIO_USERNAME,
+ITCHIO_GAME_SLUG.
 
-CURRENT STATE
-✅ Code ready and complete
-✅ GitHub repo initialized (buisnessautomatedgoal)
-⏳ Awaiting GitHub Secrets configuration
+Publishing goes through butler, itch.io's official upload tool. itch.io has no
+HTTP upload API.
 
-TO ACTIVATE
-1. Go to GitHub repo: https://github.com/damienlangton70-hash/buisnessautomatedgoal
-2. Add 4 Secrets (Settings → Secrets and variables → Actions):
-   - OPENAI_API_KEY — from openai.com
-   - ITCHIO_API_KEY — from itch.io settings
-   - ITCHIO_USERNAME — your itch.io username
-   - ITCHIO_GAME_ID — numeric ID from itch.io
-3. Done — workflows run automatically
-
-WORKFLOWS
-- Monday–Friday 9 AM UTC: generate:daily
-- Saturday 9 AM UTC: bundle:weekly
-- Manual: Actions tab → Run workflow
-
-NEXT: FieldAndFrame (Video Walkthrough Automation)
-
----
 Part of: Horizon autonomous business network
-Role: Passive income — game assets
-Status: Ready for production (awaiting secrets)
-Last Updated: 2026-08-27
+Role: Passive income - game assets

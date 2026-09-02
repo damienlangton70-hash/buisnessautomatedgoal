@@ -1,9 +1,18 @@
 node_modules/
-package-lock.json
+
+# package-lock.json must be committed: the workflow uses `npm ci`, which
+# requires it, and it is what pins jimp to the version this code targets.
+
 .env
 .env.local
 .env.*.local
-data/tilesets/run-*/
+
+# Generated assets never belong in the repo. The old workflow committed every
+# 1024px PNG it produced, which would have added tens of MB per day.
+data/daily/*
+!data/daily/.gitkeep
+dist/
+
 .DS_Store
 *.swp
 .vscode/
@@ -11,5 +20,5 @@ data/tilesets/run-*/
 *.log
 npm-debug.log*
 .cache/
-dist/
 build/
+butler.zip

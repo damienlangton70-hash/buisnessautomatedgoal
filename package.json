@@ -1,27 +1,28 @@
 {
   "name": "dark-dragon-assets",
-  "version": "2.0.0",
-  "description": "Autonomous game tile generation (5 tilesets/day M-F) and weekly itch.io publishing",
+  "version": "3.0.0",
+  "description": "Autonomous game tile generation (5 tilesets/day Mon-Fri) and weekly itch.io publishing via butler",
   "type": "module",
   "main": "src/generate-daily.mjs",
   "scripts": {
     "generate:daily": "node src/generate-daily.mjs",
     "bundle:weekly": "node src/bundle-weekly.mjs",
-    "generate:test": "TEST_MODE=true node src/generate-daily.mjs",
-    "bundle:test": "TEST_MODE=true node src/bundle-weekly.mjs"
+    "publish:weekly": "node src/publish-itchio.mjs",
+    "test:pipeline": "node scripts/test-pipeline.mjs"
   },
   "keywords": [
     "game-assets",
     "tiles",
+    "tileset",
     "itch.io",
     "automation"
   ],
   "author": "Damien Langton",
   "license": "MIT",
   "dependencies": {
-    "openai": "^4.24.0",
+    "archiver": "^6.0.0",
     "jimp": "^0.22.10",
-    "archiver": "^6.0.0"
+    "openai": "^4.24.0"
   },
   "devDependencies": {}
 }
