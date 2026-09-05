@@ -20,7 +20,7 @@ const projectRoot = join(__dirname, "..");
 const dataDir = process.env.DATA_DIR || join(projectRoot, "data", "daily");
 
 const {
-  OPENAI_API_KEY,
+  HF_API_TOKEN,
   TEST_MODE,
   IMAGE_QUALITY = "hd",
   TILE_SIZE,
@@ -40,12 +40,11 @@ function log(message) {
   console.log(`[${new Date().toISOString()}] ${message}`);
 }
 
-async function loadOpenAI() {
-  if (!OPENAI_API_KEY) {
-    throw new Error("OPENAI_API_KEY not set. See .env.example");
+async function loadImageGenerator() {
+  if (!HF_API_TOKEN) {
+    throw new Error("HF_API_TOKEN not set. See .env.example");
   }
-  const { default: OpenAI } = await import("openai");
-  return new OpenAI({ apiKey: OPENAI_API_KEY });
+  return { token: HF_API_TOKEN };
 }
 
 /**
@@ -68,7 +67,7 @@ async function usedThemesThisWeek(weekId) {
   }
 }
 
-async function generateImage(openai, prompt, filepath, label) {
+async function generateImage(generator, prompt, filepath, label) {
   if (isTest) {
     await createPlaceholderTile(filepath, `${label}:${prompt}`, label);
     log(`  [test] synthesised ${label}`);
@@ -78,23 +77,20 @@ async function generateImage(openai, prompt, filepath, label) {
   let lastError;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      const response = await openai.images.generate({
-        model: "dall-e-3",
-        prompt,
-        n: 1,
-        size: "1024x1024",
-        quality: IMAGE_QUALITY,
+      const hfApiUrl = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2-1";
+
+      const response = await fetch(hfApiUrl, {
+        headers: { Authorization: `Bearer ${generator.token}` },
+        method: "POST",
+        body: JSON.stringify({ inputs: prompt, parameters: { height: 1024, width: 1024 } }),
       });
 
-      const imageUrl = response.data?.[0]?.url;
-      if (!imageUrl) throw new Error("No image URL returned from DALL-E");
-
-      const imgResponse = await fetch(imageUrl);
-      if (!imgResponse.ok) {
-        throw new Error(`Image download failed: ${imgResponse.status}`);
+      if (!response.ok) {
+        throw new Error(`HF API error ${response.status}: ${await response.text()}`);
       }
 
-      await writeFile(filepath, Buffer.from(await imgResponse.arrayBuffer()));
+      const blob = await response.blob();
+      await writeFile(filepath, Buffer.from(await blob.arrayBuffer()));
       log(`  generated ${label}`);
       return filepath;
     } catch (error) {
@@ -108,16 +104,16 @@ async function generateImage(openai, prompt, filepath, label) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function buildTileset(openai, theme, assetId) {
+async function buildTileset(generator, theme, assetId) {
   const raw = {
     floor: join(dataDir, `${assetId}-floor-raw.png`),
     wall: join(dataDir, `${assetId}-wall-raw.png`),
     prop: join(dataDir, `${assetId}-prop-raw.png`),
   };
 
-  await generateImage(openai, theme.prompts.floor, raw.floor, "floor");
-  await generateImage(openai, theme.prompts.wall, raw.wall, "wall");
-  await generateImage(openai, theme.prompts.prop, raw.prop, "prop");
+  await generateImage(generator, theme.prompts.floor, raw.floor, "floor");
+  await generateImage(generator, theme.prompts.wall, raw.wall, "wall");
+  await generateImage(generator, theme.prompts.prop, raw.prop, "prop");
 
   const out = {
     floor: join(dataDir, `${assetId}-floor.png`),
@@ -172,7 +168,7 @@ async function main() {
   const week = isoWeek(now);
   const date = utcDateStamp(now);
 
-  const openai = isTest ? null : await loadOpenAI();
+  const generator = isTest ? null : await loadImageGenerator();
 
   const fragmentPath = join(dataDir, `day-${week.id}-${date}.json`);
   let existing = { assets: [], failures: [] };
@@ -204,7 +200,7 @@ async function main() {
     log(`\n[${i + 1}/${themes.length}] ${theme.name} (${assetId})`);
 
     try {
-      assets.push(await buildTileset(openai, theme, assetId));
+      assets.push(await buildTileset(generator, theme, assetId));
       log(`  done`);
     } catch (error) {
       // One bad tileset should not throw away the ones already paid for.
