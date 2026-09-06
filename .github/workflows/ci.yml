@@ -1,0 +1,56 @@
+name: CI
+
+# Runs the pipeline test on every pull request and every push to main.
+#
+# This is the check that branch protection should require. It costs nothing —
+# the suite synthesises tiles locally and never calls an image API — and it is
+# what would have caught the three failures this repo has actually shipped:
+# a fabricated itch.io endpoint, a Jimp constructor that crashed on the first
+# tileset, and a run that packed placeholder art and reported success.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - run: npm ci
+
+      - name: Pipeline test (no API spend)
+        run: npm run test:pipeline
+
+      # Cheap guard against the specific mistakes that have recurred here:
+      # calling an endpoint nobody verified, and hardcoding a credential.
+      - name: No fabricated itch.io upload endpoint
+        run: |
+          # Match the endpoint in code, not in the comments that document why
+          # it must never be used: drop lines whose first character is * or /.
+          HITS=$(grep -rn "itch\.io/api/1/.*/uploads" src/ 2>/dev/null \
+                 | grep -vE ':[0-9]+: *(\*|//)' || true)
+          if [ -n "$HITS" ]; then
+            echo "$HITS"
+            echo "::error::itch.io has no HTTP upload API. Publish via butler."
+            exit 1
+          fi
+          echo "OK — no fabricated upload endpoint"
+
+      - name: No hardcoded credentials
+        run: |
+          if grep -rnE '(hf_[A-Za-z0-9]{30,}|sk-[A-Za-z0-9]{20,}|key-[A-Za-z0-9]{20,})' \
+               src/ scripts/ .github/ 2>/dev/null; then
+            echo "::error::A credential appears to be hardcoded. Use an env var."
+            exit 1
+          fi
+          echo "OK — no hardcoded credentials"
