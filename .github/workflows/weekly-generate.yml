@@ -70,6 +70,7 @@ jobs:
           FAL_KEY: ${{ secrets.FAL_KEY }}
           BFL_API_KEY: ${{ secrets.BFL_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          HF_API_TOKEN: ${{ secrets.HF_API_TOKEN }}
           TILESETS_PER_RUN: ${{ vars.TILESETS_PER_RUN || '5' }}
           TILE_SIZE: ${{ vars.TILE_SIZE || '512' }}
         run: npm run generate:daily
