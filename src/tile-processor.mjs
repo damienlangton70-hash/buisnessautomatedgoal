@@ -127,17 +127,18 @@ function wrap(v, n) {
 }
 
 /**
- * Prepare a prop tile: downscale, then knock out the flat backdrop so the prop
- * drops onto a game map with transparency instead of a black square.
+ * Prepare a single-object asset (a building): downscale, then knock out the
+ * flat backdrop so it drops onto a game map with transparency instead of a
+ * black square.
  *
- * Props are single centred objects, so the seamless pass is deliberately NOT
+ * These are single centred objects, so the seamless pass is deliberately NOT
  * applied to them — the original code tiled them, which smeared the object
  * across its own edges.
  *
  * The knockout floods inward from the border rather than thresholding the
  * whole image, so dark pixels *inside* the prop survive.
  */
-export async function prepareProp(
+export async function prepareObject(
   inputPath,
   outputPath,
   tileSize = DEFAULT_TILE_SIZE,
@@ -281,9 +282,9 @@ export async function createPlaceholderTile(
   const image = new Jimp(size, size, 0x000000ff);
   const { data } = image.bitmap;
 
-  // Props come back from the image model as a centred object on a flat black
-  // backdrop, so the placeholder mimics that shape — otherwise the background
-  // knockout has nothing to bite on and the test proves nothing.
+  // Buildings come back from the image model as a centred object on a flat
+  // black backdrop, so the placeholder mimics that shape — otherwise the
+  // background knockout has nothing to bite on and the test proves nothing.
   const centre = size / 2;
   const radius = size * 0.3;
 
@@ -291,7 +292,7 @@ export async function createPlaceholderTile(
     for (let x = 0; x < size; x++) {
       const i = (y * size + x) * 4;
 
-      if (kind === "prop") {
+      if (kind === "prop" || kind === "building") {
         const dx = x - centre;
         const dy = y - centre;
         const wobble = 1 + Math.sin(Math.atan2(dy, dx) * 5 + (seed % 11)) * 0.12;

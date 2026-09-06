@@ -66,8 +66,10 @@ jobs:
 
       - name: Generate tilesets
         env:
+          IMAGE_PROVIDER: ${{ vars.IMAGE_PROVIDER || 'fal' }}
+          FAL_KEY: ${{ secrets.FAL_KEY }}
+          BFL_API_KEY: ${{ secrets.BFL_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          IMAGE_QUALITY: ${{ vars.IMAGE_QUALITY || 'hd' }}
           TILESETS_PER_RUN: ${{ vars.TILESETS_PER_RUN || '5' }}
           TILE_SIZE: ${{ vars.TILE_SIZE || '512' }}
         run: npm run generate:daily

@@ -1,27 +1,40 @@
 /**
  * Theme library.
  *
- * Sizing note: DALL-E 3 renders at 1024x1024 and cannot produce true low-res
- * pixel art, so the prompts ask for a clean top-down texture and the tile
- * processor downscales to the target tile size. Asking for "16x16 pixel"
- * (as the original prompts did) just produced 1024px paintings *of* pixel art.
+ * Each theme yields three images: a seamless floor tile, a seamless wall tile,
+ * and an isometric building.
+ *
+ * The building replaced the single decorative prop in Sept 2026. A prop is a
+ * barrel; a building is the thing a buyer actually cannot make themselves, and
+ * it is what carries the perceived value of a pack.
+ *
+ * Sizing note: the image models render at 1024x1024 and cannot produce true
+ * low-res pixel art, so the prompts ask for clean 2D game art and the tile
+ * processor downscales. Asking for "16x16 pixel" (as the original prompts did)
+ * just produced 1024px paintings *of* pixel art.
  */
 
 const FLOOR_STYLE =
-  "Top-down orthographic view, flat even lighting, fills the entire frame edge to edge, " +
-  "no border, no vignette, no drop shadow, no text, no watermark, no characters. " +
-  "Repeating texture suitable for a game floor tile.";
+  "Seamless repeating texture, top-down orthographic view, flat even lighting, " +
+  "fills the entire frame edge to edge, no border, no vignette, no drop shadow, " +
+  "no text, no watermark, no characters. Hand-painted 2D game art.";
 
 const WALL_STYLE =
-  "Top-down orthographic view, flat even lighting, fills the entire frame edge to edge, " +
-  "no border, no vignette, no text, no watermark, no characters. " +
-  "Repeating texture suitable for a game wall tile.";
+  "Seamless repeating texture, top-down orthographic view, flat even lighting, " +
+  "fills the entire frame edge to edge, no border, no vignette, " +
+  "no text, no watermark, no characters. Hand-painted 2D game art.";
 
-const PROP_STYLE =
-  "Single object centred on a plain flat black background, orthographic view, " +
-  "even lighting, generous margin around the object, no text, no watermark, no other objects.";
+// The flat black backdrop is load-bearing: prepareObject floods inward from the
+// border to knock it out to transparency. A gradient or a ground plane defeats
+// that, so the prompt forbids both explicitly.
+const BUILDING_STYLE =
+  "Isometric 2D game asset, single structure centred on a plain flat pure black " +
+  "background with generous margin on all sides, clean crisp edges, " +
+  "no ground plane, no terrain, no shadow cast on the background, " +
+  "no text, no watermark, no characters, no other objects. " +
+  "Hand-painted RPG art style.";
 
-function theme(key, { name, description, tags, color, floor, wall, prop }) {
+function theme(key, { name, description, tags, color, floor, wall, building }) {
   return {
     key,
     name,
@@ -31,7 +44,7 @@ function theme(key, { name, description, tags, color, floor, wall, prop }) {
     prompts: {
       floor: `${floor} ${FLOOR_STYLE}`,
       wall: `${wall} ${WALL_STYLE}`,
-      prop: `${prop} ${PROP_STYLE}`,
+      building: `${building} ${BUILDING_STYLE}`,
     },
   };
 }
@@ -45,7 +58,8 @@ export const THEMES = {
     color: "#5a5a5a",
     floor: "Weathered grey stone block dungeon floor, worn edges, moss in the cracks.",
     wall: "Rough-hewn dark stone dungeon wall, deep mortar lines, damp patches.",
-    prop: "A rusted iron wall torch with a burning flame, dark fantasy game art.",
+    building:
+      "A squat stone dungeon gatehouse with an iron portcullis, arrow slits and a moss-streaked parapet.",
   }),
   "cave-rock": theme("cave-rock", {
     name: "Cave Rock",
@@ -55,7 +69,8 @@ export const THEMES = {
     color: "#6b5d4f",
     floor: "Uneven natural cave rock floor, wet patches, scattered pebbles, mineral veins.",
     wall: "Natural cave rock wall face, jagged strata, damp mineral streaks.",
-    prop: "A cluster of glowing blue crystals growing from a rock base, game art.",
+    building:
+      "A timber-framed mine entrance built into a rock face, with support beams, a rail cart track and a hanging lantern.",
   }),
   "overgrown-crypt": theme("overgrown-crypt", {
     name: "Overgrown Crypt",
@@ -65,7 +80,8 @@ export const THEMES = {
     color: "#4a5a3a",
     floor: "Cracked ancient crypt flagstones with roots and creeping vines pushing through.",
     wall: "Ancient crypt wall of carved stone, split by roots, fungal growth in the cracks.",
-    prop: "A weathered leaning tombstone with faded carving and clinging ivy, game art.",
+    building:
+      "A crumbling stone mausoleum with a broken door, carved angel statues and ivy swallowing one wall.",
   }),
   "frozen-tundra": theme("frozen-tundra", {
     name: "Frozen Tundra",
@@ -75,7 +91,8 @@ export const THEMES = {
     color: "#c7dbe6",
     floor: "Packed snow over cracked blue glacial ice, wind-carved ridges, frost detail.",
     wall: "A wall of translucent blue glacial ice, internal fractures and frost rime.",
-    prop: "A jagged shard of blue ice jutting upward, frost at its base, game art.",
+    building:
+      "A snow-buried log trapper's lodge with a steep frosted roof, icicles along the eaves and warm firelight in the windows.",
   }),
   "volcanic-basalt": theme("volcanic-basalt", {
     name: "Volcanic Basalt",
@@ -85,7 +102,8 @@ export const THEMES = {
     color: "#3a2020",
     floor: "Cracked black basalt floor with glowing orange molten lava seams and ash dust.",
     wall: "Black volcanic rock wall, sharp fractures, faint orange glow deep in the cracks.",
-    prop: "A jagged obsidian spire with molten orange veins glowing inside it, game art.",
+    building:
+      "A black stone forge with a tall chimney belching embers, a glowing furnace mouth and iron-banded doors.",
   }),
   "sunken-ruins": theme("sunken-ruins", {
     name: "Sunken Ruins",
@@ -95,7 +113,8 @@ export const THEMES = {
     color: "#2f6b6b",
     floor: "Submerged cracked temple stone floor covered in barnacles, coral and green algae.",
     wall: "Waterlogged carved stone wall encrusted with coral, barnacles and seaweed.",
-    prop: "A barnacle-crusted broken amphora resting on sand, game art.",
+    building:
+      "A half-collapsed drowned temple with toppled columns, coral growth across its steps and seaweed trailing from the roof.",
   }),
   "desert-sandstone": theme("desert-sandstone", {
     name: "Desert Sandstone",
@@ -105,7 +124,8 @@ export const THEMES = {
     color: "#c9a06a",
     floor: "Sun-bleached sandstone slabs half buried under drifting fine sand, hairline cracks.",
     wall: "Carved sandstone tomb wall with worn relief carving and sand dust.",
-    prop: "A cracked clay urn half sunk in desert sand, game art.",
+    building:
+      "A sandstone desert tomb entrance with a stepped facade, carved pillars and sand drifted against its base.",
   }),
   "verdant-forest": theme("verdant-forest", {
     name: "Verdant Forest",
@@ -115,7 +135,8 @@ export const THEMES = {
     color: "#3f6b34",
     floor: "Damp forest floor of moss, fallen leaves, twigs and exposed dark soil.",
     wall: "A dense wall of gnarled tree bark and knotted trunks packed tightly together.",
-    prop: "A cluster of red-capped toadstool mushrooms on a mossy mound, game art.",
+    building:
+      "A woodcutter's cottage of timber and moss-covered shingle, with a stone chimney and a woodpile against the wall.",
   }),
   "arcane-sanctum": theme("arcane-sanctum", {
     name: "Arcane Sanctum",
@@ -125,7 +146,8 @@ export const THEMES = {
     color: "#4b3f7a",
     floor: "Polished dark marble floor inlaid with softly glowing purple arcane runes.",
     wall: "Smooth violet marble wall with inlaid silver rune bands and a faint magical glow.",
-    prop: "A floating glowing purple crystal orb above a small stone pedestal, game art.",
+    building:
+      "A crooked wizard's tower of violet stone with a conical roof, glowing rune bands and floating rocks orbiting its spire.",
   }),
   "rusted-foundry": theme("rusted-foundry", {
     name: "Rusted Foundry",
@@ -135,7 +157,8 @@ export const THEMES = {
     color: "#6e4a32",
     floor: "Riveted rusted iron plate flooring with oil stains, grime and a worn tread pattern.",
     wall: "Rusted riveted steel bulkhead wall with bolts, weld seams and peeling paint.",
-    prop: "A dented rusty oil barrel with a stencilled marking, game art.",
+    building:
+      "A riveted iron workshop with brass pipework, pressure gauges, a smoking stack and a corrugated roof.",
   }),
   "blighted-swamp": theme("blighted-swamp", {
     name: "Blighted Swamp",
@@ -145,7 +168,8 @@ export const THEMES = {
     color: "#4a5535",
     floor: "Stagnant murky swamp water over sunken mud, algae scum, half-submerged roots.",
     wall: "A dense wall of tangled swamp roots, mud, rotting bark and hanging moss.",
-    prop: "A twisted dead swamp tree stump with hanging moss, game art.",
+    building:
+      "A witch's stilt hut of warped driftwood and thatch, leaning over the water, hung with charms and bottles.",
   }),
   "gilded-palace": theme("gilded-palace", {
     name: "Gilded Palace",
@@ -155,7 +179,8 @@ export const THEMES = {
     color: "#b08b3f",
     floor: "Cream and black marble palace floor in a geometric pattern with gold leaf inlay.",
     wall: "Ornate palace wall panel, cream marble with carved gold filigree borders.",
-    prop: "An ornate golden candelabrum with lit white candles, game art.",
+    building:
+      "A white marble palace pavilion with gilded domes, fluted columns and a red carpeted stair.",
   }),
   "necrotic-bone": theme("necrotic-bone", {
     name: "Necrotic Bone",
@@ -165,7 +190,8 @@ export const THEMES = {
     color: "#8a8069",
     floor: "Floor of packed pale bones and grey ash, skulls and fragments pressed flat.",
     wall: "Ossuary wall built from stacked skulls and long bones set in grey mortar.",
-    prop: "A stacked pile of pale skulls with a faint green glow in the eye sockets, game art.",
+    building:
+      "A necromancer's ossuary shrine built from stacked bone and dark stone, with green witchfire braziers at its door.",
   }),
   "neon-undercity": theme("neon-undercity", {
     name: "Neon Undercity",
@@ -175,7 +201,8 @@ export const THEMES = {
     color: "#1f2a44",
     floor: "Wet cracked concrete street with puddles reflecting pink and cyan neon light.",
     wall: "Grimy concrete alley wall with conduit pipes, graffiti smears and neon spill light.",
-    prop: "A glowing cyan neon sign bracket on a short pole, cyberpunk game art.",
+    building:
+      "A cyberpunk noodle bar of stacked shipping containers, glowing pink and cyan neon signage, cables and air-conditioning units.",
   }),
   "celestial-void": theme("celestial-void", {
     name: "Celestial Void",
@@ -185,7 +212,8 @@ export const THEMES = {
     color: "#2b2350",
     floor: "Dark translucent stone floor with a starfield and violet nebula glowing beneath it.",
     wall: "A wall of deep indigo cosmic stone flecked with stars and drifting nebula light.",
-    prop: "A slowly rotating fragment of star-flecked astral rock, game art.",
+    building:
+      "A floating astral observatory of indigo stone and silver rings, with a crystal dome and star-flecked stone base.",
   }),
 };
 

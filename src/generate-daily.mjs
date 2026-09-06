@@ -6,12 +6,13 @@ import { fileURLToPath } from "url";
 import { pickThemes } from "./themes/themes.mjs";
 import {
   makeSeamless,
-  prepareProp,
+  prepareObject,
   createTilesetPreview,
   createPlaceholderTile,
   DEFAULT_TILE_SIZE,
 } from "./tile-processor.mjs";
 import { isoWeek, utcDateStamp } from "./lib/week.mjs";
+import { resolveProvider } from "./lib/image-provider.mjs";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const projectRoot = join(__dirname, "..");
@@ -19,32 +20,19 @@ const projectRoot = join(__dirname, "..");
 // scratch directory instead of the repo's data/daily.
 const dataDir = process.env.DATA_DIR || join(projectRoot, "data", "daily");
 
-const {
-  HF_API_TOKEN,
-  TEST_MODE,
-  IMAGE_QUALITY = "hd",
-  TILE_SIZE,
-  TILESETS_PER_RUN,
-} = process.env;
+const { TEST_MODE, TILE_SIZE, TILESETS_PER_RUN } = process.env;
 
 const isTest = TEST_MODE === "true";
+
+export const PLACEHOLDER_SOURCE = "test-placeholder";
 const tileSize = Number(TILE_SIZE) || DEFAULT_TILE_SIZE;
 const tilesetsPerRun = Number(TILESETS_PER_RUN) || 5;
 
-// DALL-E 3, 1024x1024. Kept here so the run log states the real spend rather
-// than the wildly optimistic figure the docs used to carry.
-const COST_PER_IMAGE_USD = IMAGE_QUALITY === "hd" ? 0.08 : 0.04;
+// floor, wall, building
 const IMAGES_PER_TILESET = 3;
 
 function log(message) {
   console.log(`[${new Date().toISOString()}] ${message}`);
-}
-
-async function loadImageGenerator() {
-  if (!HF_API_TOKEN) {
-    throw new Error("HF_API_TOKEN not set. See .env.example");
-  }
-  return { token: HF_API_TOKEN };
 }
 
 /**
@@ -67,7 +55,7 @@ async function usedThemesThisWeek(weekId) {
   }
 }
 
-async function generateImage(generator, prompt, filepath, label) {
+async function generateImage(provider, prompt, filepath, label) {
   if (isTest) {
     await createPlaceholderTile(filepath, `${label}:${prompt}`, label);
     log(`  [test] synthesised ${label}`);
@@ -77,21 +65,9 @@ async function generateImage(generator, prompt, filepath, label) {
   let lastError;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      const hfApiUrl = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2-1";
-
-      const response = await fetch(hfApiUrl, {
-        headers: { Authorization: `Bearer ${generator.token}` },
-        method: "POST",
-        body: JSON.stringify({ inputs: prompt, parameters: { height: 1024, width: 1024 } }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HF API error ${response.status}: ${await response.text()}`);
-      }
-
-      const blob = await response.blob();
-      await writeFile(filepath, Buffer.from(await blob.arrayBuffer()));
-      log(`  generated ${label}`);
+      const buffer = await provider.generate(prompt);
+      await writeFile(filepath, buffer);
+      log(`  generated ${label} (${(buffer.length / 1024).toFixed(0)} KB)`);
       return filepath;
     } catch (error) {
       lastError = error;
@@ -104,33 +80,37 @@ async function generateImage(generator, prompt, filepath, label) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function buildTileset(generator, theme, assetId) {
+async function buildTileset(provider, theme, assetId) {
   const raw = {
     floor: join(dataDir, `${assetId}-floor-raw.png`),
     wall: join(dataDir, `${assetId}-wall-raw.png`),
-    prop: join(dataDir, `${assetId}-prop-raw.png`),
+    building: join(dataDir, `${assetId}-building-raw.png`),
   };
 
-  await generateImage(generator, theme.prompts.floor, raw.floor, "floor");
-  await generateImage(generator, theme.prompts.wall, raw.wall, "wall");
-  await generateImage(generator, theme.prompts.prop, raw.prop, "prop");
+  await generateImage(provider, theme.prompts.floor, raw.floor, "floor");
+  await generateImage(provider, theme.prompts.wall, raw.wall, "wall");
+  await generateImage(provider, theme.prompts.building, raw.building, "building");
 
   const out = {
     floor: join(dataDir, `${assetId}-floor.png`),
     wall: join(dataDir, `${assetId}-wall.png`),
-    prop: join(dataDir, `${assetId}-prop.png`),
+    building: join(dataDir, `${assetId}-building.png`),
     preview: join(dataDir, `${assetId}-preview.png`),
   };
 
   await makeSeamless(raw.floor, out.floor, tileSize);
   await makeSeamless(raw.wall, out.wall, tileSize);
-  await prepareProp(raw.prop, out.prop, tileSize);
+
+  // The building is a single object on a flat black backdrop, so it gets the
+  // backdrop knocked out to transparency and is NOT run through the seamless
+  // pass, which would smear it across its own edges.
+  await prepareObject(raw.building, out.building, tileSize);
 
   await createTilesetPreview(
     [
       { path: out.floor, repeat: 2 },
       { path: out.wall, repeat: 2 },
-      { path: out.prop, repeat: 1 },
+      { path: out.building, repeat: 1 },
     ],
     out.preview,
     3,
@@ -143,6 +123,10 @@ async function buildTileset(generator, theme, assetId) {
 
   return {
     id: assetId,
+    // Every asset records how its pixels were made. A placeholder that reaches
+    // a pack is a refund, so this travels with the asset and the bundler
+    // refuses to ship any asset that is not real output.
+    source: isTest ? PLACEHOLDER_SOURCE : provider.id,
     themeKey: theme.key,
     theme: theme.name,
     description: theme.description,
@@ -153,7 +137,7 @@ async function buildTileset(generator, theme, assetId) {
     files: {
       floor: `${assetId}-floor.png`,
       wall: `${assetId}-wall.png`,
-      prop: `${assetId}-prop.png`,
+      building: `${assetId}-building.png`,
       preview: `${assetId}-preview.png`,
     },
   };
@@ -168,7 +152,9 @@ async function main() {
   const week = isoWeek(now);
   const date = utcDateStamp(now);
 
-  const generator = isTest ? null : await loadImageGenerator();
+  // Resolve the provider before spending anything, so a missing key fails on
+  // line one rather than after three images.
+  const provider = isTest ? null : resolveProvider();
 
   const fragmentPath = join(dataDir, `day-${week.id}-${date}.json`);
   let existing = { assets: [], failures: [] };
@@ -179,6 +165,20 @@ async function main() {
   }
   const indexOffset = existing.assets?.length ?? 0;
 
+  // The 5 Sept incident: a real run failed every image, then a TEST_MODE run
+  // merged five placeholder tilesets into the same day fragment, and the
+  // bundler shipped them. Never mix the two.
+  const existingIsTest = existing.assets?.some(
+    (a) => a.source === PLACEHOLDER_SOURCE,
+  );
+  if (existing.assets?.length && existingIsTest !== isTest) {
+    throw new Error(
+      `Refusing to merge: ${fragmentPath} already holds ` +
+        `${existingIsTest ? "placeholder" : "real"} assets and this is a ` +
+        `${isTest ? "TEST_MODE" : "real"} run. Move or delete that fragment first.`,
+    );
+  }
+
   const used = await usedThemesThisWeek(week.id);
   const themes = pickThemes(tilesetsPerRun, used);
 
@@ -186,9 +186,10 @@ async function main() {
   log(`Themes already used this week: ${used.length ? used.join(", ") : "none"}`);
   log(`Today: ${themes.map((t) => t.key).join(", ")}`);
   if (!isTest) {
-    const est = tilesetsPerRun * IMAGES_PER_TILESET * COST_PER_IMAGE_USD;
+    const images = tilesetsPerRun * IMAGES_PER_TILESET;
     log(
-      `Estimated spend: $${est.toFixed(2)} (${tilesetsPerRun * IMAGES_PER_TILESET} images @ ${IMAGE_QUALITY})`,
+      `Provider: ${provider.id} — estimated spend ` +
+        `$${(images * provider.costPerImageUsd).toFixed(2)} for ${images} images`,
     );
   }
 
@@ -200,7 +201,7 @@ async function main() {
     log(`\n[${i + 1}/${themes.length}] ${theme.name} (${assetId})`);
 
     try {
-      assets.push(await buildTileset(generator, theme, assetId));
+      assets.push(await buildTileset(provider, theme, assetId));
       log(`  done`);
     } catch (error) {
       // One bad tileset should not throw away the ones already paid for.

@@ -11,6 +11,7 @@
  */
 
 import { spawnSync } from "child_process";
+import { existsSync } from "fs";
 import { mkdtemp, readdir, rm, readFile, mkdir } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -45,6 +46,16 @@ function runScript(script, env) {
     throw new Error(`${script} exited ${result.status}`);
   }
   return result.stdout;
+}
+
+/** Run a script expecting it to FAIL, and return its combined output. */
+function runScriptExpectingFailure(script, env) {
+  const result = spawnSync("node", [script], {
+    cwd: root,
+    env: { ...process.env, DATA_DIR: dataDir, DIST_DIR: distDir, ...env },
+    encoding: "utf8",
+  });
+  return { failed: result.status !== 0, out: result.stdout + result.stderr };
 }
 
 /** Mean absolute difference between the tile's opposite edges. */
@@ -164,19 +175,42 @@ async function main() {
     );
   }
 
-  const prop = await Jimp.read(join(dataDir, sample.files.prop));
+  const building = await Jimp.read(join(dataDir, sample.files.building));
   let transparent = 0;
-  prop.scan(0, 0, prop.bitmap.width, prop.bitmap.height, function (x, y, idx) {
-    if (this.bitmap.data[idx + 3] === 0) transparent++;
-  });
+  building.scan(
+    0,
+    0,
+    building.bitmap.width,
+    building.bitmap.height,
+    function (x, y, idx) {
+      if (this.bitmap.data[idx + 3] === 0) transparent++;
+    },
+  );
   check(
-    "prop background knocked out",
+    "building background knocked out",
     transparent > 0,
     `${transparent} transparent px`,
   );
 
+  // Regression test for 5 Sept 2026: a run whose image generation failed
+  // produced placeholder tilesets, and the bundler zipped them and reported
+  // success. The bundler must now refuse.
+  console.log("\nPlaceholder guard:");
+  const blocked = runScriptExpectingFailure("src/bundle-weekly.mjs", {
+    WEEK_ID: week,
+  });
+  check("bundler refuses to pack placeholder tilesets", blocked.failed);
+  check(
+    "refusal names the offending tilesets",
+    /placeholders, not real art/.test(blocked.out),
+  );
+
   console.log("\nBundle:");
-  const out = runScript("src/bundle-weekly.mjs", { WEEK_ID: week });
+  const out = runScript("src/bundle-weekly.mjs", {
+    WEEK_ID: week,
+    ALLOW_PLACEHOLDERS: "true",
+  });
+  check("override warns loudly", /must not be published/.test(out));
   check("bundle reports all six tilesets", /Total: 6 tilesets/.test(out));
   check("bundle reports six distinct themes", /Distinct themes: 6\/6/.test(out));
 
@@ -194,9 +228,14 @@ async function main() {
     zipList.filter((f) => /^\d\d-[a-z-]+\/floor\.png$/.test(f)).length === 6,
   );
   check("zip has 24 PNGs", zipList.filter((f) => f.endsWith(".png")).length === 24);
+  check(
+    "zip contains a building per tileset",
+    zipList.filter((f) => /^\d\d-[a-z-]+\/building\.png$/.test(f)).length === 6,
+  );
 
   console.log("\nPublish (dry run):");
   const pub = runScript("src/publish-itchio.mjs", { WEEK_ID: week, DRY_RUN: "true" });
+  check("no dead direct-upload script remains", !existsSync(join(root, "src", "publish-direct.mjs")));
   check("publish finds the staged pack", /Staged for/.test(pub));
 
   await rm(scratch, { recursive: true, force: true }).catch(() => {});

@@ -7,6 +7,8 @@ import { fileURLToPath } from "url";
 import archiver from "archiver";
 import { isoWeek } from "./lib/week.mjs";
 
+const PLACEHOLDER_SOURCE = "test-placeholder";
+
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const projectRoot = join(__dirname, "..");
 const dataDir = process.env.DATA_DIR || join(projectRoot, "data", "daily");
@@ -51,6 +53,38 @@ async function collectWeek(weekId) {
     assets.push(...frag.assets);
   }
 
+  // Hard stop. Everything downstream of generation — tiling, zipping, the
+  // manifest, the pack README — works perfectly on garbage input and reports
+  // success, which is exactly how a pack of noise got built on 5 Sept.
+  const placeholders = assets.filter((a) => a.source === PLACEHOLDER_SOURCE);
+  const untagged = assets.filter((a) => !a.source);
+
+  if (placeholders.length && process.env.ALLOW_PLACEHOLDERS !== "true") {
+    throw new Error(
+      `${placeholders.length}/${assets.length} tilesets are TEST_MODE ` +
+        `placeholders, not real art (${placeholders
+          .map((a) => a.id)
+          .join(", ")}). Refusing to build a pack. Delete these from ` +
+        `data/daily and re-run generation with a working image source.`,
+    );
+  }
+
+  if (untagged.length && process.env.ALLOW_UNTAGGED !== "true") {
+    throw new Error(
+      `${untagged.length}/${assets.length} tilesets predate source tagging ` +
+        `and cannot be verified as real art. Refusing to build a pack. ` +
+        `Re-generate them, or set ALLOW_UNTAGGED=true if you have checked ` +
+        `them by eye.`,
+    );
+  }
+
+  if (placeholders.length) {
+    log(
+      `[WARNING] ALLOW_PLACEHOLDERS is set — ${placeholders.length} placeholder ` +
+        `tilesets are being bundled. This pack must not be published.`,
+    );
+  }
+
   return { weekId, tileSize, days, assets };
 }
 
@@ -71,7 +105,7 @@ Each numbered folder is one tileset:
 
 - \`floor.png\` — seamless floor tile, tiles on all four edges
 - \`wall.png\` — seamless wall tile, tiles on all four edges
-- \`prop.png\` — single prop with a transparent background
+- \`building.png\` — isometric building on a transparent background
 - \`preview.png\` — preview grid (floor and wall shown as a 2x2 repeat)
 
 \`manifest.json\` lists every tileset with its theme, tags and colour, so you
